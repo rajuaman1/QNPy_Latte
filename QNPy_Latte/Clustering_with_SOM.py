@@ -117,9 +117,9 @@ def Load_Light_Curves(folder,one_filter = True,filters = 'a',id_list = None):
         one_filter_curves = []
         ids = []
         if one_filter:
-            filenames = glob(f'{folder}\*.csv')
+            filenames = glob(f'{folder}/*.csv')
         else:
-            filenames = glob(f'{folder}/{Filter}\*.csv')
+            filenames = glob(f'{folder}/{Filter}/*.csv')
         for file in tqdm(filenames,desc ='Loading {} curves'.format(Filter)):
             truth_flag = 0
             if one_filter:
