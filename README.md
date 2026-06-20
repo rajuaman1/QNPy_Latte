@@ -88,7 +88,6 @@ Along with the standard package, we provide tutorial notebooks and scripts (COMI
 1) **Clustering_Tutorial_Notebooks**
 2) **Modelling_Tutorial_Notebooks**
 3) **Modelling_Tutorial_Notebooks_w_Params**
-4) **Modelling_Scripts** (COMING SOON)
 
 It is important that your light curves are in the form of csv files with three columns, mjd, mag and magerr. Store all of them in a single folder, or seperate the folders by band under one main directory. Example, Light_Curves\name.csv or Light_Curves\u_band\name.csv
 
