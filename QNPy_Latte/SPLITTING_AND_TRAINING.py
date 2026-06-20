@@ -5,6 +5,7 @@ import numpy as np
 import random
 from math import ceil
 import os
+import copy
 
 import random
 import numpy as np
@@ -43,36 +44,53 @@ def prepare_output_dir(OUTPUT_PATH):
             os.remove(os.path.join(root, name))
 
 
-def split_data(files, DATA_SRC, TRAIN_FOLDER, TEST_FOLDER, VAL_FOLDER, verbose=0):
-    random.shuffle(files)  # Shuffle files to ensure randomness
-    val_files = random.sample(files, 2)  # Randomly pick 2 files for validation
+def split_data(files, DATA_SRC, TRAIN_FOLDER, TEST_FOLDER, VAL_FOLDER, split_lists=None, verbose=0):
+    # If custom split lists are provided, use them; otherwise, split randomly
+    if split_lists is None:
+        random.shuffle(files)
+        val_files = random.sample(files, 2)  # Pick 2 files for validation
+    else:
+        train_files, test_files, val_files = split_lists
 
     i = 0
-    val_count = 0  # Counter for validation files
+    train_list, test_list, val_list = [], [], []
 
-    if verbose > 0:
-        files_to_use = tqdm(files)
-    else:
-        files_to_use = files
+    # Determine which file list to use (tqdm for progress display if verbose > 0)
+    files_to_use = tqdm(files) if verbose > 0 else files
 
     for file in files_to_use:
         lcName = file.split(".")[0]
         tmpDataFrame = pd.read_csv(os.path.join(DATA_SRC, file))
 
-        if file in val_files:
-            filename = VAL_FOLDER + lcName + '_split' + str(i) + '.csv'
-            val_count += 1
-        else:
-            r = random.uniform(0, 1)
-            if r < 0.8:
-                filename = TRAIN_FOLDER + lcName + '_split' + str(i) + '.csv'
-            elif r < 0.9:
-                filename = TEST_FOLDER + lcName + '_split' + str(i) + '.csv'
-            else:
+        if split_lists is None:  # Random split if no custom lists are provided
+            if file in val_files:
                 filename = VAL_FOLDER + lcName + '_split' + str(i) + '.csv'
-
+                val_list.append(lcName)
+            else:
+                r = random.uniform(0, 1)
+                if r < 0.8:
+                    train_list.append(lcName)
+                    filename = TRAIN_FOLDER + lcName + '_split' + str(i) + '.csv'
+                elif r < 0.9:
+                    test_list.append(lcName)
+                    filename = TEST_FOLDER + lcName + '_split' + str(i) + '.csv'
+                else:
+                    val_list.append(lcName)
+                    filename = VAL_FOLDER + lcName + '_split' + str(i) + '.csv'
+        else:  # Use custom split lists
+            if lcName in train_files:
+                train_list.append(lcName)
+                filename = TRAIN_FOLDER + lcName + '_split' + str(i) + '.csv'
+            elif lcName in test_files:
+                test_list.append(lcName)
+                filename = TEST_FOLDER + lcName + '_split' + str(i) + '.csv'
+            elif lcName in val_files:
+                val_list.append(lcName)
+                filename = VAL_FOLDER + lcName + '_split' + str(i) + '.csv'
         tmpDataFrame.to_csv(filename, index=False)
         i += 1
+
+    return train_list, test_list, val_list
 
 torch.cuda.empty_cache() 
 
@@ -81,7 +99,11 @@ torch.manual_seed(0)
 random.seed(0)
 np.random.seed(0)
 
-def get_data_loaders(data_path_train, data_path_val, batch_size,tf_dir = None,param_df = None, param_columns = None, class_labels_df = None, data_type = 'train',augment = True):
+def get_data_loaders(data_path_train, data_path_val, batch_size,tf_dir = None,param_df = None, param_columns = None, class_labels_df = None, data_type = 'train',augment = True,num_workers = None):
+    if num_workers is None:
+        num_workers = max(0, os.cpu_count() // 2)
+
+    
     if data_type == 'train':
         train_set = LightCurvesDataset(root_dir=data_path_train, status='train',tf_dir = tf_dir,param_df = param_df, param_columns = param_columns, class_labels_df = class_labels_df)
         train_loader = DataLoader(train_set,
@@ -89,25 +111,27 @@ def get_data_loaders(data_path_train, data_path_val, batch_size,tf_dir = None,pa
                                   shuffle=True,
                                   collate_fn=partial(collate_lcs, augment = augment),
                                   num_workers=0,
-                                  pin_memory=True)
+                                  pin_memory=True,
+                                  persistent_workers = False)
         return train_loader
     elif data_type == 'val':
         val_set = LightCurvesDataset(root_dir=data_path_val, status='test',tf_dir = tf_dir,param_df = param_df, param_columns = param_columns, class_labels_df = class_labels_df)
         val_loader = DataLoader(val_set,
                                 num_workers=0,
                                 batch_size=1,
-                                pin_memory=True)
+                                pin_memory=True,
+                                persistent_workers = False)
 
         return val_loader
 
 
 def create_model_and_optimizer(device,encoding_size,latent_dim,attention,self_attention,latent_mlp_size = 128,attention_type = 'scaledot',\
-                              no_latent_space_sample = 1,latent_mode = 'NPVI',lstm_layers = 0,lr = 1e-4,lstm_size = 64,activation = 'relu',lstm_agg = False,use_scheduler = True,transfer_function_length = 0, parameters_length = 0, classes = 0, replace_lstm_with_gru = False, bidirectional = False):
+                              no_latent_space_sample = 1,latent_mode = 'NPVI',lstm_layers = 0,lr = 1e-4,lstm_size = 64,activation = 'relu',lstm_agg = False,use_scheduler = True,transfer_function_length = 0, parameters_length = 0, classes = 0, replace_lstm_with_gru = False, bidirectional = False,num_workers = None):
     if latent_dim is None:
         no_latent_space_sample = None
     model = FullModel(encoding_size,latent_dim,latent_mlp_size,attention,self_attention,attention_type,no_latent_space_sample,latent_mode,lstm_layers,\
                      lstm_size,activation,lstm_agg,transfer_function_length, parameters_length, classes,replace_lstm_with_gru = replace_lstm_with_gru,bidirectional = bidirectional)
-    model = model.to(device)
+    model = model.to(device,non_blocking = True)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     if use_scheduler:
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.1)
@@ -128,7 +152,9 @@ def track_gradients(model):
     total_norm = total_norm ** 0.5
     print('Total Gradient Norm:', total_norm)
 
-def train_model(model, criterion, optimizer, scheduler, num_runs, EPOCHS, EARLY_STOPPING_LIMIT, mseMetric, maeMetric, device,DATA_PATH_TRAIN, DATA_PATH_VAL, BATCH_SIZE,latent_mode = 'NPVI',beta_param = 0, beta_tf = 0, beta_classifier = 0,tf_dir = None,param_df=None,param_columns=None,class_labels_df = None,augment = True,validation_epochs = 10):
+def train_model(model, criterion, optimizer, scheduler, num_runs, EPOCHS, EARLY_STOPPING_LIMIT, mseMetric, maeMetric, device,DATA_PATH_TRAIN, \
+                DATA_PATH_VAL, BATCH_SIZE,latent_mode = 'NPVI',beta_param = 0, beta_tf = 0, beta_classifier = 0,tf_dir = None,param_df=None,\
+                param_columns=None,class_labels_df = None,augment = True,validation_epochs = 10,num_workers = 0):
     history_loss_train = [[] for _ in range(num_runs)]
     history_loss_val = [[] for _ in range(num_runs)]
     #The loss from parameters
@@ -161,13 +187,12 @@ def train_model(model, criterion, optimizer, scheduler, num_runs, EPOCHS, EARLY_
     criterion_classifier = nn.CrossEntropyLoss()
     criterion_param = LogProbLoss(None,param = True)
     
-    valLoader = get_data_loaders(DATA_PATH_TRAIN, DATA_PATH_VAL, BATCH_SIZE,tf_dir,param_df, param_columns, class_labels_df,data_type = 'val')
-    trainLoader = get_data_loaders(DATA_PATH_TRAIN, DATA_PATH_VAL, BATCH_SIZE,tf_dir,param_df, param_columns, class_labels_df,data_type = 'train',augment = True)
+    valLoader = get_data_loaders(DATA_PATH_TRAIN, DATA_PATH_VAL, BATCH_SIZE,tf_dir,param_df, param_columns, class_labels_df,data_type = 'val',num_workers = num_workers)
     
     for j in range(num_runs):
         epochs_since_last_improvement = 0
         best_loss = None
-        best_model = model.state_dict()
+        best_model = copy.deepcopy(model.state_dict())
         epoch_counter = 0
 
         for epoch in tqdm(range(EPOCHS)):
@@ -182,25 +207,28 @@ def train_model(model, criterion, optimizer, scheduler, num_runs, EPOCHS, EARLY_
             total_loss_param_train = 0
             total_loss_classifier_train = 0
             counter = 0
+
+            trainLoader = get_data_loaders(DATA_PATH_TRAIN, DATA_PATH_VAL, BATCH_SIZE,tf_dir,param_df, param_columns, class_labels_df,data_type = 'train',augment = augment,num_workers = num_workers)
+
             for data in trainLoader:
                 # Unpack data
                 [context_x, context_y, target_x, measurement_error], target_y,tf,param,class_labels = data
 
                 # Move to GPU
                 context_x, context_y, target_x, target_y, measurement_error = (
-                    context_x.to(device),
-                    context_y.to(device),
-                    target_x.to(device),
-                    target_y.to(device),
-                    measurement_error.to(device),
+                    context_x.to(device,non_blocking=True),
+                    context_y.to(device,non_blocking=True),
+                    target_x.to(device,non_blocking=True),
+                    target_y.to(device,non_blocking=True),
+                    measurement_error.to(device,non_blocking=True),
                 )
                 
                 if param != 'None':
-                    param = param.to(device)
+                    param = param.to(device,non_blocking=True)
                 if tf != 'None':
-                    tf = tf.to(device)
+                    tf = tf.to(device,non_blocking=True)
                 if class_labels != 'None':
-                    class_labels = class_labels.to(device)
+                    class_labels = class_labels.to(device,non_blocking=True)
                 
                 # Zero the gradients
                 optimizer.zero_grad()
@@ -257,13 +285,13 @@ def train_model(model, criterion, optimizer, scheduler, num_runs, EPOCHS, EARLY_
                 else:
                     mse_mae_mu = mu
                 
-                # Calculate MSE metric
-                mseLoss = mseMetric(target_y, mse_mae_mu, measurement_error)
-                total_mse_train += mseLoss
+                # Calculate MSE metric (use the error as an inverse weight)
+                mseLoss = mseMetric(target_y, mse_mae_mu, 1/(measurement_error)**2)
+                total_mse_train += mseLoss.item()
 
-                # Calculate MAE metric
-                maeLoss = maeMetric(target_y, mse_mae_mu, measurement_error)
-                total_mae_train += maeLoss
+                # Calculate MAE metric (use the error as an inverse weight)
+                maeLoss = maeMetric(target_y, mse_mae_mu,  1/(measurement_error)**2)
+                total_mae_train += maeLoss.item()
 
             # Update history for losses
             epoch_loss = total_loss_train / len(trainLoader)
@@ -315,20 +343,20 @@ def train_model(model, criterion, optimizer, scheduler, num_runs, EPOCHS, EARLY_
     
                         # Move to GPU
                         context_x, context_y, target_x, target_y, target_test_x, measurement_error = (
-                            context_x.to(device),
-                            context_y.to(device),
-                            target_x.to(device),
-                            target_y.to(device),
-                            target_test_x.to(device),
-                            measurement_error.to(device),
+                            context_x.to(device,non_blocking=True),
+                            context_y.to(device,non_blocking=True),
+                            target_x.to(device,non_blocking=True),
+                            target_y.to(device,non_blocking=True),
+                            target_test_x.to(device,non_blocking=True),
+                            measurement_error.to(device,non_blocking=True),
                         )
                         
                         if param[0] != 'None':
-                            param = param.to(device)
+                            param = param.to(device,non_blocking=True)
                         if tf[0] != 'None':
-                            tf = tf.to(device)
+                            tf = tf.to(device,non_blocking=True)
                         if class_labels[0] != 'None':
-                            class_labels = class_labels.to(device)
+                            class_labels = class_labels.to(device,non_blocking=True)
                         
                         
                         if latent_mode == 'NPVI':
@@ -372,7 +400,21 @@ def train_model(model, criterion, optimizer, scheduler, num_runs, EPOCHS, EARLY_
     
                         loss = loss_mag + beta_param*loss_param + beta_tf*loss_tf + beta_classifier*loss_classes
                         total_loss_val += loss.item()
-                
+
+                                        
+                        if len(mu.shape) == 3:
+                            mse_mae_mu = mu.mean(0)
+                        else:
+                            mse_mae_mu = mu
+
+                        # Calculate MSE metric (use the error as an inverse weight)
+                        mseLossval = mseMetric(target_y, mse_mae_mu, 1/(measurement_error)**2)
+                        total_mse_val += mseLossval.item()
+
+                        # Calculate MAE metric (use the error as an inverse weight)
+                        maeLossval = maeMetric(target_y, mse_mae_mu,  1/(measurement_error)**2)
+                        total_mae_val += maeLossval.item()
+                        
                 
                 # Update history for losses
                 val_loss = total_loss_val / len(valLoader)
@@ -393,10 +435,10 @@ def train_model(model, criterion, optimizer, scheduler, num_runs, EPOCHS, EARLY_
                 val_kl_loss = total_loss_kl_val / len(valLoader)
                 history_kl_loss_val[j].append(val_kl_loss)
     
-                val_mse = total_mse_train / len(valLoader)
+                val_mse = total_mse_val / len(valLoader)
                 history_mse_val[j].append(val_mse)
     
-                val_mae = total_mae_train / len(valLoader)
+                val_mae = total_mae_val / len(valLoader)
                 history_mae_val[j].append(val_mae)
     
                 # Early stopping
@@ -416,7 +458,7 @@ def train_model(model, criterion, optimizer, scheduler, num_runs, EPOCHS, EARLY_
                 else:
                     epochs_since_last_improvement = 0
                     best_loss = val_loss
-                    best_model = model.state_dict()
+                    best_model = copy.deepcopy(model.state_dict())
                 epoch_counter_val_loss[j].append(epoch_counter)
                 epoch_counter_val_mse[j].append(epoch_counter)
                 epoch_counter_val_mae[j].append(epoch_counter)

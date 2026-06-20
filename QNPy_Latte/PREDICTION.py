@@ -44,7 +44,7 @@ from .DATASETCLASS import LightCurvesDataset, collate_lcs
 tf_loss = LogProbLoss(None,param = True)
 param_loss = LogProbLoss(None,param = True)
 
-def create_prediction_folders(base_dir='./output/predictions'):
+def create_prediction_folders(base_dir='./output/predictions',verbose = 0):
     sets = ['train', 'test', 'val']
     subfolders = ['plots', 'data']
 
@@ -52,17 +52,21 @@ def create_prediction_folders(base_dir='./output/predictions'):
         set_path = os.path.join(base_dir, set_folder)
         if not os.path.exists(set_path):
             os.makedirs(set_path)
-            print(f"Created folder: {set_path}")
+            if verbose == 1:
+                print(f"Created folder: {set_path}")
         else:
-            print(f"Folder already exists: {set_path}")
+            if verbose == 1:
+                print(f"Folder already exists: {set_path}")
 
         for subfolder in subfolders:
             subfolder_path = os.path.join(set_path, subfolder)
             if not os.path.exists(subfolder_path):
                 os.makedirs(subfolder_path)
-                print(f"Created folder: {subfolder_path}")
+                if verbose == 1:
+                    print(f"Created folder: {subfolder_path}")
             else:
-                print(f"Folder already exists: {subfolder_path}")
+                if verbose == 1:
+                    print(f"Folder already exists: {subfolder_path}")
 
 
 
@@ -91,7 +95,7 @@ def get_criteria(no_latent_space_sample = 1):
     
     return criterion, mseMetric
 
-def remove_padded_values_and_filter(folder_path):
+def remove_padded_values_and_filter(folder_path,verbose = 0):
     # Get the list of CSV files in the input folder
     csv_files = [filename for filename in os.listdir(folder_path) if filename.endswith('.csv')]
 
@@ -103,7 +107,8 @@ def remove_padded_values_and_filter(folder_path):
         if "minus" in filename or "plus" in filename:
             # Delete the CSV file
             os.remove(file_path)
-            print(f"Deleted file with 'minus' or 'plus' in the name: {filename}")
+            if verbose == 1:
+                print(f"Deleted file with 'minus' or 'plus' in the name: {filename}")
         else:
             # Remove padded values from the curve and keep the original
             try:
@@ -122,7 +127,8 @@ def remove_padded_values_and_filter(folder_path):
 
                         # Overwrite the original CSV file with the modified DataFrame
                         data.to_csv(file_path, index=False)
-                        print(f"Removed padding in file: {filename}")
+                        if verbose == 1:
+                            print(f"Removed padding in file: {filename}")
                     else:
                         print(f"No padding removed for file: {filename}")
                 else:
@@ -319,7 +325,7 @@ def plot_function2(tr,target_x, target_y, context_x, context_y, yerr1, pred_y, v
             d = {'mjd': target_test_xorig, 
                 'mag': pred_yorig[i],
                 'magerr_top_2sig': vartop_2[i]-pred_yorig[i],
-                'magerr_bot_2sig':pred_yorig[i]-vartop_2[i]}
+                'magerr_bot_2sig':pred_yorig[i]-varbot_2[i]}
             df = pd.DataFrame(data=d)
             df.to_csv(csvpath, index=False)
         

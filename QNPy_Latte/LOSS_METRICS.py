@@ -1,4 +1,4 @@
-from sklearn.metrics import root_mean_squared_error, median_absolute_error
+from sklearn.metrics import mean_squared_error, median_absolute_error
 import torch
 import torch.nn as nn
 from torch.utils.data import IterableDataset, DataLoader, Dataset
@@ -63,7 +63,7 @@ class MSELoss(nn.Module):
         with torch.no_grad(): 
             # Move to cpu
             y_true, y_pred, weights = y_true.cpu(), y_pred.cpu(), weights.cpu()
-            mse = root_mean_squared_error(y_true, y_pred, sample_weight=weights, multioutput='uniform_average')
+            mse = mean_squared_error(y_true, y_pred, sample_weight=weights, multioutput='uniform_average')
             return mse
 
 class MAELoss(nn.Module):

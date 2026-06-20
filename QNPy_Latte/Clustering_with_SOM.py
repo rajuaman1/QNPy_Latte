@@ -20,6 +20,7 @@ from astropy.cosmology import FlatLambdaCDM
 from itertools import combinations
 from scipy import stats
 import seaborn as sns
+from scipy.interpolate import interp1d
 
 #Function to plot light curve adapted from Damir's notebook
 def Plot_Lc(Light_Curve,header = 'Light Curve',save_fig = False,filename = 'Figure',x_axis = 'mjd',return_fig = False):
@@ -404,11 +405,11 @@ def plot_training(training_metric_results,metric,plotting_frequency,indices_to_p
     plt.xlabel('iteration index')
     if save_figs:
         if 'Plots' not in os.listdir():
-            os.makedirs(figs_save_path+'Plots')
+            os.makedirs(fig_save_path+'Plots')
         plt.savefig(fig_save_path+'Plots/Model_Training_'+metric+'.png')  
 
 def Plot_SOM_Scaled_Average(som_model,scaled_curves,dba = True,figsize = (10,10),save_figs = True,figs_save_path = './',\
-                           plot_weights = True,plot_avg = True,plot_background = True,one_fig = True,show_fig = True):
+                           plot_weights = True,plot_avg = True,plot_background = True,one_fig = True,show_fig = True, plot_zero = True,fontsize = 12):
     '''
     Plotting the SOM Clusters with the average light curve and the SOM weights of each cluster. The average can be either simple mean
     or using a dba averaging method (https://github.com/fpetitjean/DBA)
@@ -462,7 +463,7 @@ def Plot_SOM_Scaled_Average(som_model,scaled_curves,dba = True,figsize = (10,10)
         rows += 1
     if one_fig:
         fig, axs = plt.subplots(rows,cols,figsize = figsize,layout="constrained")
-        fig.suptitle('Clusters')
+        fig.suptitle('Clusters', fontsize=fontsize+2)
         count = 0
         for x in tqdm(range(som_x),desc = 'Creating Plots'):
             for y in range(som_y):
@@ -470,11 +471,21 @@ def Plot_SOM_Scaled_Average(som_model,scaled_curves,dba = True,figsize = (10,10)
                 no_obj_in_cluster = 0
                 if cluster in win_map.keys():
                     for series in win_map[cluster]:
+                        cluster_len = len(win_map[cluster])
+                        if cluster_len > 300:
+                            alpha_factor = 0.002*cluster_len
+                        elif cluster_len > 200:
+                            alpha_factor = 2
+                        elif cluster_len > 100:
+                            alpha_factor = 6
+                        else:
+                            alpha_factor = 0.1*cluster_len
+                        alpha = alpha_factor/cluster_len
                         if plot_background:
                             if no_obj_in_cluster == 0:
-                                axs.flat[count].plot(series,c="gray",alpha=0.5,label = 'Light Curves')
+                                axs.flat[count].plot(series,c="gray",alpha=alpha,label = 'Light Curves')
                             else:
-                                axs.flat[count].plot(series,c="gray",alpha=0.5)
+                                axs.flat[count].plot(series,c="gray",alpha=alpha)
                         no_obj_in_cluster += 1
                     if plot_avg:
                         if no_obj_in_cluster > 0:
@@ -485,12 +496,17 @@ def Plot_SOM_Scaled_Average(som_model,scaled_curves,dba = True,figsize = (10,10)
                 if plot_weights:
                     weights = som_model.get_weights()[x][y]
                     axs.flat[count].plot(range(len(weights)),weights,c = 'red',label = 'SOM Representation')
-                axs.flat[count].set_title(f"Cluster {x*som_y+y+1}: {no_obj_in_cluster} curves")
-                axs.flat[count].legend()
+                if plot_zero:
+                    axs.flat[count].plot(range(len(weights)),0,linestyle = ':',alpha = 0.5)
+                axs.flat[count].set_title(f"Cluster {x*som_y+y+1}: {no_obj_in_cluster} curves",fontsize=fontsize)
+                axs.flat[count].tick_params(axis='both', labelsize=fontsize)
+                axs.flat[count].legend(fontsize=fontsize)
                 count += 1
         if save_figs:
             if 'Plots' not in os.listdir():
                 os.makedirs(figs_save_path+'Plots')
+            plt.xlabel('Days',fontsize = fontsize)
+            plt.ylabel('Scaled Magnitudes',fontsize = fontsize)
             plt.savefig(figs_save_path+'Plots/Scaled_Averaged_Clusters.png')
         plt.show()
     else:
@@ -500,23 +516,24 @@ def Plot_SOM_Scaled_Average(som_model,scaled_curves,dba = True,figsize = (10,10)
                 cluster = (x,y)
                 no_obj_in_cluster = 0
                 if cluster in win_map.keys():
+                    count_label = 0
                     for series in win_map[cluster]:
                         if plot_background:
                             if no_obj_in_cluster == 0:
                                 plt.plot(series,c="gray",alpha=0.5,label = 'Light Curves')
                             else:
                                 plt.plot(series,c="gray",alpha=0.5)
-                        if plot_avg:
-                            if dba is True:
-                                plt.plot(dtw_barycenter_averaging(np.vstack(win_map[cluster])),c="blue",label = 'Average Curve')
-                            else:
-                                plt.plot(np.mean(np.vstack(win_map[cluster]),axis=0),c="blue",label = 'Average Curve')
                         no_obj_in_cluster += 1
+                if plot_avg:
+                    if dba is True:
+                        plt.plot(dtw_barycenter_averaging(np.vstack(win_map[cluster])),c="blue",label = 'Average Curve')
+                    else:
+                        plt.plot(np.mean(np.vstack(win_map[cluster]),axis=0),c="blue",label = 'Average Curve')
                 if plot_weights:
                     weights = som_model.get_weights()[x][y]
                     plt.plot(range(len(weights)),weights,c = 'red',label = 'SOM Representation')
                 plt.title(f"Cluster {x*som_y+y+1}: {no_obj_in_cluster} curves")
-                plt.xlabel('Cadence Counts')
+                plt.xlabel('Days')
                 plt.ylabel('Scaled Magnitude')
                 plt.legend()
                 if save_figs:
@@ -938,16 +955,16 @@ def outliers_detection(clusters_df,som,scaled_curves,ids,outlier_percentage = 0.
     #Detects outliers that aren't quantized well as a percentage of the clusters
     quantization_errors = np.linalg.norm(som.quantization(scaled_curves) - scaled_curves, axis=1)
     error_treshold = np.percentile(quantization_errors, 
-                               100*(1-outliers_percentage)+5)
+                               100*(1-outlier_percentage)+5)
     outlier_ids = np.array(ids)[quantization_errors>error_treshold]
     outlier_cluster = []
-    for i in range(len(clus.ID)):
-        if str(clus.ID[i]) in outlier_ids:
-            outlier_cluster.append(clus.Cluster[i])
+    for i in range(len(clusters_df.ID)):
+        if str(clusters_df.ID[i]) in outlier_ids:
+            outlier_cluster.append(clusters_df.Cluster[i])
     #Plot the number of outliers per cluster
     plt.figure()
-    plt.hist(clus['Cluster'],bins = len(np.unique(clus.Cluster))-1,alpha = 0.35,label = 'Total number of clusters',edgecolor = 'k')
-    plt.hist(outlier_cluster,bins = len(np.unique(clus.Cluster))-1,alpha = 0.35,label = 'outliers',edgecolor = 'k')
+    plt.hist(clusters_df['Cluster'],bins = len(np.unique(clusters_df.Cluster))-1,alpha = 0.35,label = 'Total number of clusters',edgecolor = 'k')
+    plt.hist(outlier_cluster,bins = len(np.unique(clusters_df.Cluster))-1,alpha = 0.35,label = 'outliers',edgecolor = 'k')
     plt.xlabel('Cluster')
     plt.ylabel('No of Quasars')
     plt.legend()

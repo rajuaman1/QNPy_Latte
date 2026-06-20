@@ -171,9 +171,16 @@ def collate_lcs(batch,augment = True):
         
         # Pad and append to list
         if augment:
-            random_noise_factor = random.choice([-1, 0, 1])
-            context_y_one_item = item['context_y'][context_indices]+random_noise_factor*item['measurement_error'][context_indices]
-            target_y_one_item = item['target_y'][target_indices]+random_noise_factor*item['measurement_error'][target_indices]
+            context_y_one_item = (
+            item['context_y'][context_indices]
+            + torch.randn_like(item['measurement_error'][context_indices])
+            * item['measurement_error'][context_indices])
+
+            target_y_one_item = (
+            item['target_y'][target_indices]
+            + torch.randn_like(item['measurement_error'][target_indices])
+            * item['measurement_error'][target_indices]
+    )
         else:
             context_y_one_item = item['context_y'][context_indices]
             target_y_one_item = item['target_y'][target_indices]
