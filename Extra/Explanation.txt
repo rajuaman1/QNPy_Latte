@@ -1,0 +1,1 @@
+This is messy but a version of the MDM used in the QNPy_Latte Paper (Raju et. al. 2026). Please go through and try to adapt for your use case or make it better if you can!
